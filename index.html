@@ -124,6 +124,17 @@
   .shop-item .ds { font-size: 10px; color: #9ca3af; margin-bottom: 6px; }
   .shop-item .pr { font-size: 12px; font-weight: 800; color: #fbbf24; }
   .shop-item .lvl-badge { font-size: 10px; color: #4ade80; font-weight: 700; }
+
+  /* Leaderboard */
+  .lb-table { width: 100%; max-width: 600px; border-collapse: collapse; margin: 10px 0; background: #1d1d2b; border-radius: 10px; overflow: hidden; }
+  .lb-table th, .lb-table td { padding: 10px; text-align: left; border-bottom: 1px solid #333; font-size: 14px; }
+  .lb-table th { background: #2a2a3d; color: #93c5fd; font-weight: 700; }
+  .lb-table tr:last-child td { border-bottom: none; }
+  .lb-table .top1 { color: #fbbf24; font-weight: bold; }
+  .lb-table .top2 { color: #cbd5e1; font-weight: bold; }
+  .lb-table .top3 { color: #d97706; font-weight: bold; }
+  .name-input { padding: 10px 15px; border-radius: 8px; border: 2px solid #4a4a6e; background: #0b0b12; color: #fff; font-size: 16px; margin-bottom: 15px; outline: none; text-align: center; width: 250px; }
+  .name-input:focus { border-color: #4ade80; }
 </style>
 </head>
 <body>
@@ -171,11 +182,15 @@
 </div>
 
 <script>
-/* ===================== SUPABASE (опционально) ===================== */
-const SUPABASE_URL = 'https://ВАШ_ПРОЕКТ.supabase.co';
-const SUPABASE_KEY = 'ВАШ_ANON_KEY';
+/* ===================== SUPABASE ===================== */
+// ВАШИ КЛЮЧИ УЖЕ ВСТАВЛЕНЫ ЗДЕСЬ:
+const SUPABASE_URL = 'https://irhgpjtfjgsofegibepc.supabase.co'; 
+const SUPABASE_KEY = 'sb_publishable_awvtcaAzGXSEd0ioo-94dQ_MmZmBUyb'; 
+
 let supabaseClient = null;
 let playerId = localStorage.getItem('war_player_id');
+let playerName = localStorage.getItem('war_player_name') || '';
+
 if (!playerId) {
   playerId = 'player_' + Math.random().toString(36).slice(2, 10);
   localStorage.setItem('war_player_id', playerId);
@@ -316,6 +331,7 @@ const G = {
   
   hitstop: 0, shakeIntensity: 0, flash: 0,
   wavePending: false, comboCount: 0, comboTimer: 0,
+  maxWaveReached: 1
 };
 
 let lastHUD = { coins:-1, wave:'', meat:-1, cannon:-1, tower:-1, upgrade:-1 };
@@ -338,10 +354,23 @@ function getMetaMult(type) { return 1 + G.meta[type] * 0.15; }
 
 /* ===================== СОХРАНЕНИЕ ===================== */
 function saveProgress() {
-  const data = { coins: G.coins, level: G.level, unitLevels: G.unitLevels, meta: G.meta, updated_at: new Date().toISOString() };
+  const data = { 
+    coins: G.coins, 
+    level: G.level, 
+    unitLevels: G.unitLevels, 
+    meta: G.meta,
+    name: playerName || 'Безымянный',
+    wave: G.maxWaveReached,
+    updated_at: new Date().toISOString() 
+  };
   try { localStorage.setItem('war_save', JSON.stringify(data)); } catch(e) {}
-  if (supabaseClient) {
-    supabaseClient.from('players').upsert({ id: playerId, ...data, meta: JSON.stringify(data.meta) }).catch(e => console.warn('Supabase save:', e));
+  
+  if (supabaseClient && playerName) {
+    supabaseClient.from('players').upsert({ 
+      id: playerId, 
+      ...data, 
+      meta: JSON.stringify(data.meta) 
+    }).catch(e => console.warn('Supabase save error:', e));
   }
 }
 function loadProgress() {
@@ -469,6 +498,10 @@ function fireCannon() {
 /* ===================== ВОЛНЫ ===================== */
 function startWave() {
   G.wave++;
+  if (G.wave > G.maxWaveReached) {
+    G.maxWaveReached = G.wave;
+    saveProgress(); // Сохраняем рекорд волны
+  }
   G.bossUnit = null;
   bossBar.classList.remove('show');
   if (G.wave % 3 === 0) { G.enemiesToSpawn = 1; G.wavePending = false; } 
@@ -803,7 +836,6 @@ function drawUnit(u) {
     ctx.fillStyle = u.team === 'p' ? '#4ade80' : '#f87171'; ctx.fillRect(x - bw/2, by, bw * (u.hp / u.maxHp), 4);
   }
 
-  // Flash effect when hit
   if (u.flashTimer > 0) {
     ctx.fillStyle = `rgba(255, 255, 255, ${u.flashTimer * 4})`;
     ctx.beginPath();
@@ -1025,7 +1057,7 @@ function showStart() {
   G.meta = { baseHp:0, meatRegen:0, unitDmg:0, unitHp:0, cannonDmg:0 };
   G.playerBaseHp = 1000; G.enemyBaseHp = 0; G.playerBaseMax = 1000; G.enemyBaseMax = 900;
   G.units = []; G.floats = []; G.particles = []; G.towers = []; G.running = false;
-  G.wave = 1; G.buffs = []; G.buffMults = { dmg:1, hp:1, towerDmg:1, regen:1, cannon:1, vamp:false, crit:0, speed:1 };
+  G.wave = 1; G.maxWaveReached = 1; G.buffs = []; G.buffMults = { dmg:1, hp:1, towerDmg:1, regen:1, cannon:1, vamp:false, crit:0, speed:1 };
   G.cannonCharge = 0; G.towerPrice = 150;
   bossBar.classList.remove('show');
   buildButtons();
@@ -1033,12 +1065,100 @@ function showStart() {
   showOverlay(`
     <h1>ВОЙНУШКА</h1>
     <p>Веди армию сквозь века. Заряжай пушку, побеждай боссов и забирай их силу!</p>
-    <p style="font-size:12px;color:#7a7a8a"><b>1/2/3/4</b> — юниты · <b>Q</b> — пушка · <b>E</b> — башня · <b>R</b> — прокачка</p>
-    <button class="btn" data-action="start">В бой!</button>
+    <input type="text" id="playerNameInput" class="name-input" placeholder="Введите ваше имя" value="${playerName}">
+    <p style="font-size:12px;color:#7a7a8a; margin-bottom: 5px;"><b>1/2/3/4</b> — юниты · <b>Q</b> — пушка · <b>E</b> — башня · <b>R</b> — прокачка</p>
+    <div>
+      <button class="btn" data-action="start">В бой!</button>
+      <button class="btn sec" data-action="leaderboard">🏆 Рекорды</button>
+    </div>
   `, 'start');
+
+  // Обработчик ввода имени
+  document.getElementById('playerNameInput').addEventListener('input', (e) => {
+    playerName = e.target.value.trim();
+    localStorage.setItem('war_player_name', playerName);
+  });
+}
+
+async function showLeaderboard() {
+  if (!supabaseClient) {
+    showOverlay(`
+      <h1>🏆 Таблица лидеров</h1>
+      <p style="color: #f87171;">База данных не подключена!<br>Проверьте настройки Supabase.</p>
+      <button class="btn sec" data-action="backToStart">Назад</button>
+    `, 'leaderboard');
+    return;
+  }
+
+  showOverlay(`
+    <h1>🏆 Таблица лидеров</h1>
+    <p>Загрузка данных...</p>
+    <button class="btn sec" data-action="backToStart">Назад</button>
+  `, 'leaderboard');
+
+  try {
+    const { data, error } = await supabaseClient
+      .from('players')
+      .select('name, level, wave')
+      .order('level', { ascending: false })
+      .order('wave', { ascending: false })
+      .limit(10);
+
+    if (error) throw error;
+
+    let rows = '';
+    if (data && data.length > 0) {
+      data.forEach((p, index) => {
+        let rankClass = '';
+        if (index === 0) rankClass = 'top1';
+        else if (index === 1) rankClass = 'top2';
+        else if (index === 2) rankClass = 'top3';
+
+        rows += `
+          <tr class="${rankClass}">
+            <td>${index + 1}</td>
+            <td>${p.name || 'Безымянный'}</td>
+            <td>Уровень ${p.level}</td>
+            <td>Волна ${p.wave}</td>
+          </tr>
+        `;
+      });
+    } else {
+      rows = `<tr><td colspan="4" style="text-align:center;">Пока нет рекордов. Будьте первым!</td></tr>`;
+    }
+
+    showOverlay(`
+      <h1>🏆 Таблица лидеров</h1>
+      <p>Топ-10 игроков по пройденным волнам</p>
+      <table class="lb-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Имя</th>
+            <th>Уровень</th>
+            <th>Волна</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <button class="btn sec" data-action="backToStart">Назад</button>
+    `, 'leaderboard');
+
+  } catch (err) {
+    console.error(err);
+    showOverlay(`
+      <h1>Ошибка</h1>
+      <p style="color: #f87171;">Не удалось загрузить таблицу лидеров.<br>Убедитесь, что вы выполнили SQL-код в Supabase.</p>
+      <button class="btn sec" data-action="backToStart">Назад</button>
+    `, 'leaderboard');
+  }
 }
 
 function startLevel() {
+  if (!playerName) {
+    alert('Пожалуйста, введите имя перед началом игры!');
+    return;
+  }
   hideOverlay();
   G.playerBaseMax = 1000 + G.meta.baseHp * 350;
   G.meatRegen = 12 + G.meta.meatRegen * 4 + G.level * 1.2;
@@ -1058,6 +1178,7 @@ function startLevel() {
   
   startWave();
   buildButtons();
+  saveProgress(); // Сохраняем при старте
 }
 
 function endBattle(win) {
@@ -1157,11 +1278,14 @@ overlay.addEventListener('click', e => {
   else if (a === 'retryLevel') startLevel();
   else if (a === 'shop') showMetaShop();
   else if (a === 'restart') showStart();
+  else if (a === 'leaderboard') showLeaderboard();
+  else if (a === 'backToStart') showStart();
 });
 
 document.addEventListener('keydown', e => {
   if (e.repeat) return;
   Sound.init();
+  if (document.activeElement.tagName === 'INPUT') return; // Чтобы не спавнить юнитов при вводе имени
   if (e.key === '1') trySpawn(0);
   if (e.key === '2') trySpawn(1);
   if (e.key === '3') trySpawn(2);
